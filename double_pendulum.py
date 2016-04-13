@@ -1,12 +1,18 @@
 """
 Code for simulating a model of an actuated double pendulum 
+
+Revisions
+2016-04-07
+    Complete rewrite based on matplotlib. See 
+       http://matplotlib.org/1.4.1/examples/animation/double_pendulum_animated.html
+    
 """
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 import os, sys
 import random
 from functools import partial
-import pygame as pyg
-from pygame.locals import *
-import Tkinter as tk
+
 from traits.api import HasTraits, Float, Button, Enum, String, Array
 from traitsui.menu import Action
 from traitsui.ui_editors.array_view_editor import ArrayViewEditor
@@ -14,27 +20,40 @@ from traitsui.api import *
 import math
 import numpy as np
 import  scipy.integrate 
-import matplotlib
-matplotlib.use('TkAgg')
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg as FigCanvas, \
-    NavigationToolbar2TkAgg as NavigationToolbar
-import matplotlib.pyplot as plt
-import double_pendulum_symbolic as dps
-import control
-from timeseriesplot import TimeSeriesPlot
 
+print "reloading"
 
 class DoublePendulumAnimation:
+    """
+    Class to animate a planar double pendulum. The class is instantiated with a desired size::
+
+       animation = DoublePendulum(width=800, height=400, fps=60)
+
+    The animation must first be intialized. This is done using init_dp::
+    
+       animation.init_dp(lenLink1, lenLink2, angle1, angl2)
+
+    To run an animation, a signal source object needs to be passed which can generate 
+    the sequence of joint angles and input signals. For a completely static animation::
+       
+       class StaticSource:
+           def get_next_input(self, t, dt):
+               return 0.0
+           def get_next_state(self, t, dt):
+               return np.array([0.0, 0.0])
+           def get_set_point(self, t):
+               return np.array([0.0, 0.0])
+
+       animation.run_sim(StaticAnim(), tmax=10)
+    """
     gravityDown = -1
 
-    def __init__(self, master, w=600, h=400, fps=50.0):
+    def __init__(self, width=600, height=400, fps=50.0):
 
-        self.master = master
         self.fps = fps
-        self.width = w
-        self.height= h
-        self.pygw = tk.Frame(master, height=h, width=w)
+        self.width = width
+        self.height= height
+        self.fig = tk.Frame(master, height=h, width=w)
         #self.pygw.pack(fill=tk.X)
         self.pygw.pack()
         
@@ -103,7 +122,7 @@ class DoublePendulumAnimation:
         
     
 
-    def power(self, th1dot, th2dot, u1, u2):
+    def power(th1dot, th2dot, u1, u2):
         """ Calculates the instanenous power added to (or subtracted from) the system. """
         return (th1dot*u1 + th2dot*u2)
 
@@ -140,7 +159,7 @@ class DoublePendulumAnimation:
         pyg.draw.circle(self.screen, joint_color, joint_pos, point_radius, 0)
         pyg.draw.circle(self.screen, endp_color, end_pos, point_radius, 0)
         
-    def run_sim(self, dpmodel, tmax, costfunction):
+    def run_sim(self, signalSource, tmax, costfunction = lambda u,x: 0.0):
 
         self.init_control_cost(costfunction)
 
@@ -165,10 +184,10 @@ class DoublePendulumAnimation:
 
             msElapsed = clock.tick(self.fps)
             #try:
-            u = dpmodel.get_next_input(now, dt)
-            th = dpmodel.get_next_state(now, dt)
+            u = signalSource.get_next_input(now, dt)
+            th = signalSource.get_next_state(now, dt)
             
-            th0 = dpmodel.get_set_point(now)
+            th0 = signalSource.get_set_point(now)
 
             #except:
             #    break
@@ -178,7 +197,7 @@ class DoublePendulumAnimation:
             else:
                 u1 = u[0]
                 if len(u) > 1:
-                    u2 = dpmodel.u[1]
+                    u2 = u[1]
                 else:
                     u2 = 0
 

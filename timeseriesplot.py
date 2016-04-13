@@ -18,7 +18,7 @@ class TimeSeriesPlot:
         """
         self.plot_data = {}
         self.time_data = []
-
+        
         self.mintime = mintime
 
         plts = []
@@ -33,6 +33,8 @@ class TimeSeriesPlot:
             ax.grid(True, color='gray')
             ax.set_title(subplot['name'], fontsize=8)
 
+            canvas = ax.figure.canvas
+            
             plt.setp(ax.get_xticklabels(), fontsize=8)
             plt.setp(ax.get_yticklabels(), fontsize=8)
 
@@ -40,21 +42,29 @@ class TimeSeriesPlot:
 
             for p in subplot['timeseries']:
                 lbl = p['label']
-                pl = ax.plot([0], **p)
+                pl = ax.plot([0], animated=True, **p)
                 lbls.append(lbl)
                 plts.append(pl[0])
-                self.plot_data[lbl] = ( [], pl[0], ax, extremes )
+                self.plot_data[lbl] = ( [], pl[0], ax, extremes, canvas, canvas.copy_from_bbox(ax.bbox) )
             
         self.fig.legend(plts, lbls, 'center right')
 
-    def append_data(self, t, dt):
+    def append_data(self, t, dta):
         self.time_data.append(t)
-        for (label, dta) in dt.iteritems():
-           (linedata, lineplot, ax, minmax) =  self.plot_data[label]
-           
+        for (label, dta_) in dta.iteritems():
+           (linedata, lineplot, ax, minmax, canvas, background) =  self.plot_data[label]
+
+           # Restore clean slate background
+           canvas.restore_region(background)
+
            linedata.append(dta)
            lineplot.set_xdata(self.time_data)
            lineplot.set_ydata(linedata)
+
+           # just draw the animated artist
+           ax.draw_artist(lineplot)
+           # just redraw the axes rectangle
+           canvas.blit(ax.bbox)
 
            ax.set_xbound(lower=0, upper=max(self.mintime, t))
            # Update min and max values
