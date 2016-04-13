@@ -1,0 +1,62 @@
+\documentclass[tikz]{standalone}
+\usetikzlibrary{calc,patterns}
+\begin{document}
+
+\newcommand{\nvar}[2]{%
+    \newlength{#1}
+    \setlength{#1}{#2}
+}
+
+% Define a few constants for drawing
+\nvar{\dxmin}{2cm}
+\nvar{\dxpl}{3cm}
+\nvar{\footh}{2mm}
+\nvar{\ankleh}{12mm}
+
+\def\groundstart{-5}
+\def\groundend{5}
+\def\groundmarks{-5, -4.6, ..., 4.6}
+\def\groundd{0.4}
+  
+\def\joint{%
+    \filldraw [fill=white] (0,0) circle (5pt);
+    \fill[black] circle (2pt);
+}
+
+\begin{tikzpicture}
+  % coordinate system
+  \begin{scope}[xshift=-4cm, yshift=4cm]
+    \node[coordinate] (origin) at (0,0) {};
+    \draw[->, thick] (origin) -- (1.5, 0) node [at end, below] {$x$};
+    \draw[->,thick] (origin) -- (0,1.5) node [at end,left] {$z$};
+    \filldraw [fill=white] (0,0) circle (5pt);
+    \draw (-3pt, 3pt) -- (3pt, -3pt);
+    \draw (-3pt, -3pt) -- (3pt, 3pt);
+    \node[] at (-0.3, 0) {$y$};
+    
+  \end{scope}
+
+  \node[coordinate] (heel) at (-\dxmin, 0) {};
+  \node[coordinate] (toe) at (\dxpl, 0) {};
+
+  \draw[] (\groundstart, 0) -- (\groundend, 0);
+  \foreach \x in \groundmarks 
+           {
+             \draw[thin] (\x, 0) ++(\groundd, 0) -- (\x, -\groundd); 
+           }
+  \filldraw[] (heel) rectangle (\dxpl, \footh);
+
+  \draw[->, thick] (toe) ++(0, -2cm) --  node[right, color=red, pos=0.1] {$F_z$} (toe);
+  \draw[->, thick] (heel) ++(0, -2cm) --  node[right, color=blue, pos=0.1] {$F_z$} (heel);
+
+  \begin{scope}[xshift=0cm, yshift=\ankleh]
+    \joint
+    \draw[->, thick] (-6mm,0cm) arc [start angle=180, end angle=10, radius=6mm] node[above, pos=0.6] {$M_y$};
+  \end{scope}
+
+  \draw[thin, dashed] (0,0) -- (0,-3cm);
+  \draw[thin,<->] (-\dxmin, -1cm) -- node [below] {$d_x^-$} (0,-1cm);
+  \draw[thin,<->] (\dxpl, -1cm) -- node [below] {$d_x^+$} (0,-1cm);
+\end{tikzpicture}
+
+\end{document}
