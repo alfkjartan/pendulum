@@ -7,8 +7,11 @@ Revisions
        http://matplotlib.org/1.4.1/examples/animation/double_pendulum_animated.html
     
 """
+import matplotlib
+#matplotlib.use("QTAgg")
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import matplotlib.patches as patches
 import os, sys
 import random
 from functools import partial
@@ -21,7 +24,9 @@ import math
 import numpy as np
 import  scipy.integrate 
 
-print "reloading"
+from timeseriesplot import TimeSeriesPlot
+
+#print "reloading"
 
 class DoublePendulumAnimation:
     """
@@ -46,57 +51,77 @@ class DoublePendulumAnimation:
 
        animation.run_sim(StaticAnim(), tmax=10)
     """
-    gravityDown = -1
+    def __init__(self, pendulumModel, fps=50.0):
 
-    def __init__(self, width=600, height=400, fps=50.0):
-
+        self.pendulumModel = pendulumModel
         self.fps = fps
-        self.width = width
-        self.height= height
-        self.fig = tk.Frame(master, height=h, width=w)
-        #self.pygw.pack(fill=tk.X)
-        self.pygw.pack()
-        
-        frame = tk.Frame(master)
-        frame.pack()
+        self.height= 800
+        self.width = 2*self.height
+        self.dpi = 100
+        self.fig = plt.figure(figsize=(self.width/self.dpi, self.height/self.dpi), dpi=self.dpi)
+        self.ax = self.fig.add_axes([0.03, 0.05, 0.45, 0.9], axisbg='black', autoscale_on=False)
+        self.ax.grid(True, color='gray')
+        plt.axis('equal')
+        self.pendulum, = self.ax.plot([], [], 'o-', lw=6, color=(0.7, 0.1, 0.1))
+        self.comPlot, = self.ax.plot([], [], 'o', lw=6, color=(0.1, 0.7, 0.1))
+        self.FxVector = self.ax.annotate("",
+            xy=(0, 0), xycoords='data',
+            xytext=(0.8, 0), textcoords='data',
+            arrowprops=dict(arrowstyle="->",
+                            connectionstyle="arc3", color=(0.8, 0.8, 0.8)))
+        self.FzVector = self.ax.annotate("",
+            xy=(0, 0), xycoords='data',
+            xytext=(0, -0.8), textcoords='data',
+            arrowprops=dict(arrowstyle="->",
+                            connectionstyle="arc3", color=(0.8, 0.8, 0.8)))
+        self.forceScale = 1.0/500.0 # Force vector of 500N shown as a unit length (1m) vector
+        self.grfVector = self.ax.annotate("",
+            xy=(0, 0), xycoords='data',
+            xytext=(0, -0.8), textcoords='data',
+            arrowprops=dict(arrowstyle="->",
+                            connectionstyle="arc3", color=(0.8, 0.8, 0.8), linestyle='dashed'))
 
-        figframe = tk.Frame(master)
-        figframe.pack(expand=True, fill=tk.BOTH)
+        rect = [0.5, 0.05, 0.47, 0.9] # The rect available for the rest of the plots
+        self.timeseriesplot = TimeSeriesPlot(self.fig, rect )
+                                        
+        self.animated = self.timeseriesplot.animated
+        self.animated.append(self.pendulum)
+        self.animated.append(self.comPlot)
+        self.animated.append(self.FxVector)
+        self.animated.append(self.FzVector)
+        self.animated.append(self.grfVector)
 
-        self.fig = Figure((3.0, 3.0), dpi=100)
-        self.timeseriesplot = TimeSeriesPlot(self.fig)
         self.init_plot()
-        self.canvas = FigCanvas(self.fig, master=figframe)
-        self.canvas.show()
-        self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
-
-        #self.resetbutton = tk.Button(frame, text="Restart simulation", command=restart_sim)
-        #self.resetbutton.pack()
-        #self.quitbutton = tk.Button(frame, text="Quit", command=shutdown_app)
-        #self.quitbutton.pack()
-
-        os.environ['SDL_WINDOWID'] = str(self.pygw.winfo_id())
-
-        master.update()
-
-        self.window = pyg.display.set_mode((self.width,self.height))
-        pyg.display.set_caption("Simulated double pendulum")
-
-        self.screen = pyg.display.get_surface()
-        pyg.init()
         
-
-    def init_dp(self, length1, length2, th1, th2):
+    def init_dp(self, q1, q2, q3, q4, Fx=0, Fz=0, My=0):
         """ Called by DP model when all parameters are set by the user, and the simulation 
         is about to start.
         """
-        dplength = float(length1+length2)
-        dplengthpxls = 0.45*self.height
-        self.length1 = length1/dplength * dplengthpxls
-        self.length2 = length2/dplength * dplengthpxls
-        self.root_pos = (self.width/2, self.height/2)
-        self.draw_pendulum(th1, th1+th2)
+        length1 = self.pendulumModel.L1
+        length2 = self.pendulumModel.L2
 
+        dplength = length1+length2
+
+        self.root_pos = [q3, q4]
+        
+        self.ax.set_xlim(1.2*np.array([-dplength, dplength]))
+        self.ax.set_ylim(0.5*dplength + 1.2*np.array([-dplength, dplength]))
+
+        self.draw_pendulum(np.array([q1, q2, q3, q4]))
+
+        if Fz > 0:
+            dx = -My/Fz
+        else:
+            dx = 0
+            
+        self.FxVector.xy = (q3+dx, q4)
+        self.FxVector.set_position((q3+dx-Fx*self.forceScale, q4))
+        self.FzVector.xy = (q3+dx, q4)
+        self.FzVector.set_position((q3+dx, q4 - Fz*self.forceScale))
+        self.grfVector.set_position((q3+dx, q4))
+        self.grfVector.xy = (q3+dx+Fx*self.forceScale, q4 + Fz*self.forceScale)
+
+        plt.draw()
 
     def reset(self):
         self.fig.clear()
@@ -105,23 +130,31 @@ class DoublePendulumAnimation:
 
     def init_plot(self):
         ts = []
-        ts.append(dict(name='Inputs', 
-                       timeseries=[ dict(label='u1', linewidth=1, color=(1,1,0)), 
-                                    dict(label='u2', linewidth=1, color=(0.6,0.4,0))]))
-        ts.append(dict(name='Joint angles', 
-                       timeseries=[ dict(label='th1', linewidth=1, color=(0,1,1)), 
-                                    dict(label='th2', linewidth=1, color=(0,0.4,0.6))]))
+        ts.append(dict(name='Inputs',
+                       ylim=(-10, 10),
+                       timeseries=[ dict(label='u1', linewidth=2, color=(1,1,0)), 
+                                    dict(label='u2', linewidth=2, color=(0.6,0.4,0))]))
+        ts.append(dict(name='Generalized coordinates',
+                       ylim=(-4,4),
+                       timeseries=[ dict(label='q1', linewidth=2, color=(0,1,1)), 
+                                    dict(label='q2', linewidth=2, color=(0,0.4,0.6)),
+                                    dict(label='q3', linewidth=1, color=(0.2,0.6,0.4)),
+                                    dict(label='q4', linewidth=1, color=(0.2,1,0.6))
+                       ]))
+        ts.append(dict(name='Ground reaction forces',
+                       ylim=(-800,800),
+                       timeseries=[ dict(label='Fx', linewidth=2, color=(1,0,1)), 
+                                    dict(label='Fz', linewidth=2, color=(0.6, 0, 0.4)),
+                                    dict(label='My', linewidth=1, color=(0.4,0.,0.6)),
+                       ]))
         #ts.append(dict(name='Power input', 
         #               timeseries=[ dict(label='power', linewidth=1, color=(1,0,1))]))
-        ts.append(dict(name='Control cost', 
-                       timeseries=[ dict(label='cost', linewidth=1, color=(1,0,1))]))
+        #ts.append(dict(name='Control cost',
+        #               ylim=(0,10),
+        #               timeseries=[ dict(label='cost', linewidth=2, color=(1,0,1))]))
         
         self.timeseriesplot.init_plot(ts)
         
-        #self.canvas.draw()
-        
-    
-
     def power(th1dot, th2dot, u1, u2):
         """ Calculates the instanenous power added to (or subtracted from) the system. """
         return (th1dot*u1 + th2dot*u2)
@@ -138,183 +171,89 @@ class DoublePendulumAnimation:
         self.t = t
         return self.cost
 
-    def draw_pendulum(self, th1, th2):
-
-        point_radius = 5
-        joint_color = (200,0,0)
-        endp_color = (0, 100, 100)
-        link_color = (100, 0, 100)
-        link_width = 6
+    def draw_pendulum(self, q):
+        self.pendulumModel.set_state(q)
+        (rootp, jp, endp) = self.pendulumModel.get_joints_and_endpoint()
+        (com, com1, com2) = self.pendulumModel.get_CoM()
         
-        joint_pos = (self.root_pos[0] - int(self.length1*math.sin(th1)), 
-                     self.root_pos[1] - self.gravityDown*int(self.length1*math.cos(th1)))
-        end_pos = (joint_pos[0] - int(self.length2*math.sin(th2)), 
-                   joint_pos[1] - self.gravityDown*int(self.length2*math.cos(th2)))
+        px = [rootp[0], jp[0], endp[0]]
+        py = [rootp[1], jp[1], endp[1]]
+        self.pendulum.set_data(px, py)
 
-        self.screen.fill((0,0,0))
-        pyg.draw.line(self.screen, link_color, self.root_pos, joint_pos, link_width )
-        pyg.draw.line(self.screen, link_color, joint_pos, end_pos, link_width )
+        cx = [com[0], com1[0], com2[0]]
+        cy = [com[1], com1[1], com2[1]]
+        self.comPlot.set_data(cx, cy)
 
-        pyg.draw.circle(self.screen, joint_color, self.root_pos, point_radius, 0) 
-        pyg.draw.circle(self.screen, joint_color, joint_pos, point_radius, 0)
-        pyg.draw.circle(self.screen, endp_color, end_pos, point_radius, 0)
         
-    def run_sim(self, signalSource, tmax, costfunction = lambda u,x: 0.0):
-
+    def run_sim(self, signalSource, tmax, costfunction = lambda u,x: 0.0, plotTimeSeries = False, loop=False):
         self.init_control_cost(costfunction)
-
+        nFrames = tmax * self.fps
         dt = 1.0 / self.fps
-        clock = pyg.time.Clock()
 
-        def check_events(events): 
-            for event in events: 
-                if event.type == QUIT: 
-                    pyg.quit()
-                    sys.exit(0) 
-                    #   else: 
-                    #      print event 
+        ani = animation.FuncAnimation(self.fig, self.animate, frames=np.arange(nFrames)*dt,
+                                      fargs=(dt, signalSource, costfunction, plotTimeSeries),
+                                      interval=dt*1000, blit=True, repeat=loop) #, init_func=self.init)
 
-        pyg.display.update()
+        plt.show()
+        
+    def animate(self, t, dt, signalSource, costfunction, plotTimeSeries):
 
-        dta = dict(th1=0, th2=0, u1=0, u2=0, cost=0)
-        now = 0
-        iterations = int(tmax/dt)
-        for i in range(iterations):
-            check_events(pyg.event.get()) 
+        now = t
+    
+        u = signalSource.get_next_input(now, dt)
+        q = signalSource.get_next_state(now, dt)
+        q0 = signalSource.get_set_point(now)
+        grf = signalSource.get_next_grf(now, dt)
+        
 
-            msElapsed = clock.tick(self.fps)
-            #try:
-            u = signalSource.get_next_input(now, dt)
-            th = signalSource.get_next_state(now, dt)
-            
-            th0 = signalSource.get_set_point(now)
-
-            #except:
-            #    break
-            if np.isscalar(u):
-                u1 = u
-                u2 = 0
+        if np.isscalar(u):
+            u1 = u
+            u2 = 0
+        else:
+            u1 = u[0]
+            if len(u) > 1:
+                u2 = u[1]
             else:
-                u1 = u[0]
-                if len(u) > 1:
-                    u2 = u[1]
-                else:
-                    u2 = 0
+                u2 = 0
 
-            self.draw_pendulum(th[0], th[0]+th[1])
-            pyg.display.update()
-         
-            if 0:
-                now += dt
+        # Update the pendulum        
+        self.draw_pendulum(q)
 
-                dta['th1'] = th[0]
-                dta['th2'] = th[1]
-                dta['u1'] = u1
-                dta['u2'] = u2
-                dta['cost'] = self.update_control_cost(th-th0, u, dt)
-                self.timeseriesplot.append_data(now, dta)
+        # Update the force vectors
+        # The center of pressure
+        Fx = grf[0]
+        Fz = grf[1]
+        My = grf[2]
+        dx = -My/Fz
+        self.FxVector.xy = (q[2]+dx, q[3])
+        self.FxVector.set_position((q[2]+dx-Fx*self.forceScale, q[3]))
+        self.FzVector.xy = (q[2]+dx, q[3])
+        self.FzVector.set_position((q[2]+dx, q[3] - Fz*self.forceScale))
+        self.grfVector.set_position((q[2]+dx, q[3]))
+        self.grfVector.xy = (q[2]+dx+Fx*self.forceScale, q[3] + Fz*self.forceScale)
+        
+        
+        if plotTimeSeries:
+            dta = {}
+            dta['q1'] = q[0]
+            dta['q2'] = q[1]
+            dta['q3'] = q[2]
+            dta['q4'] = q[3]
+            dta['u1'] = u1
+            dta['u2'] = u2
+            dta['Fx'] = Fx
+            dta['Fz'] = Fz
+            dta['My'] = My
 
-                self.master.update()
-        return self.cost
-
+            #dta['cost'] = self.update_control_cost(q-q0, u, dt)
+            self.timeseriesplot.append_data(now, dta)
+        return self.animated
+    
 def restart_sim():
     pass
 def shutdown_app():
     pass
 
-class Void (tk.Tk) :
-    def __init__ (self, color='black') :
-        tk.Tk.__init__(self)
-        #self.wm_state('zoomed')
-        w, h = self.winfo_screenwidth(), self.winfo_screenheight()
-        self.geometry("%dx%d+0+0" % (w, h))
-        self.config(bg=color)
-        self.overrideredirect(True)
-        self.attributes('-topmost', True)
-
-class ScipyOde:
-    def __init__(self, odefcn):
-        self.odeint = scipy.integrate.ode(odefcn).set_integrator('dopri')
-
-    def run(self, dpmodel, x0, tmax, dt=0.01):
-        self.odeint.set_initial_value(x0)
-        while self.odeint.successful() and self.odeint.t < tmax:
-            self.update_state(dt)
-
-    def set_init_state(self, x0):
-        self.odeint.set_initial_value(x0)
-
-    def update_state(self, dt):
-        self.odeint.integrate(self.odeint.t + dt)
-        
-class LQR(HasTraits):
-    Q = Array(value=np.array([1,1, 1, 1]))
-    R = Array(value=np.array([1., 1.]))
-
-    compute_lqr = Button(label="Compute LQR")
-
-    A = None
-    B = None
-    
-    def __init__(self, A, B):
-        udim = B.shape[1]
-        self.R = np.diag(np.eye(udim))
-        self.A = A
-        self.B = B
-
-    def compute_lqr(self):
-        K, S, E = control.lqr(self.A, self.B, np.diag(self.Q), np.diag(self.R))
-        return K
-
-class ReflexFeedback():
-    """ Function object which implements a reflex feedback. The feedback will be on for a given
-    duration. After that, it will have a refractory phase, in which it can not be activated 
-    again.
-    The threshold should be given in m, and represents a horizontal displacement of the center
-    of mass of the double pendulum. The position of the pendulum CoM is computed from the 
-    joint angles and the distance from the joints to the respective CoMs of the two links.
-    """
-    def __init__(self, thr, amplitude, duration, refr, a1, a2, m1, m2):
-        self.thr = thr
-        self.amplitude = amplitude
-        self.duration = duration
-        self.refractoryduration = refr
-        self.a1 = a1  # length from base to CoM of link 1
-        self.a2 = a2  # length from joint to CoM of link 2
-        self.m1 = m1  # mass of link 1
-        self.m2 = m2  # mass of link 1
-        self.invm = 1.0 / (m1+m2) # Inverse of the total mass. For faster computations
-        self.firing = False
-        self.armed = True
-        self.output = np.array([0,0])
-        self.stop = 0
-
-    def __call__(self, x, t):
-        if self.firing:
-            if t > self.stop:
-                self.firing = False
-                self.armed = False
-                self.stop = t + self.refractoryduration
-                self.output[1] = 0.0
-        else:
-            if self.armed:
-                if self.center_of_mass(x) > self.thr:
-                    self.firing = True
-                    self.output[1] = -self.amplitude
-                    self.stop = t + self.duration
-            else:
-                # Check if refractory phase done
-                if t > self.stop:
-                    self.armed = True
-
-        return self.output
-    
-    def center_of_mass(self, x):
-        cm1 = self.a1*math.sin(x[0])
-        cm2 = self.a2*math.sin(x[1])
-        
-        return (cm1*self.m1 + cm2*self.m2)*self.invm
-    
 class DoublePendulum(HasTraits):
     """ Class representing the dynamics of a double pendulum """
 
@@ -415,8 +354,66 @@ class DoublePendulum(HasTraits):
                        Item(name="reset_animation", show_label=False)),
                 Item(name="status"))
 
-    def __init__(self, animation):
+    def __init__(self):
+        pass
+
+    def set_animation(self, animation):
         self.animation = animation
+
+
+    def set_trajectory(self, t, qs, grf):
+        """
+        Sets a trajectory for the pendulum model.
+        t should be a (N,) 1D-array of time instants
+        qs and grf should be a corresponding sequences (N,4) and ground reaction forces (N,3)
+        """
+        
+        self.timeVector = t
+        self.stateTrajectory = qs
+        self.grfTrajectory = grf
+        
+    def set_state(self, q):
+        """
+        Explicitly sets the state of the pendulum. 
+        q must have four elements
+        """
+
+        self.currentState = q
+
+    def get_joints_and_endpoint(self):
+        """ 
+        Returns the current location of the two joints and the endpoint.
+        """
+        j0 = self.currentState[2:]
+        j1 = j0 + self.L1*np.array([np.sin(self.currentState[0]), np.cos(self.currentState[0])])
+        q1plusq2 = np.sum(self.currentState[:2])
+        endp = j1 + self.L2*np.array([np.sin(q1plusq2), np.cos(q1plusq2)])
+
+        return (j0, j1, endp)
+        
+    def get_CoM(self):
+        """
+        Returns the current center of mass of the complete pendulum model, as well as a list of 
+        the center of mass of each of the links
+        """
+
+        (j0, j1, endp) = self.get_joints_and_endpoint()
+
+        com1 = j0 + (j1-j0)*self.a1
+        com2 = j1 + (endp-j1)*self.a2
+
+        com = (self.m1*com1 + self.m2*com2)/(self.m1+self.m2)
+
+        return (com, com1, com2)
+    
+    def get_next_state(self, t, dt):
+        self.update_disturbance()
+        self.integrator.update_state(dt)
+        return self.integrator.odeint.y[:4]
+
+    def get_next_input(self, t, dt):
+        return -self.feedback(self.integrator.odeint.y[:4]-self.setpoint, t)
+
 
 
     def _reset_animation_fired(self):
@@ -627,6 +624,89 @@ class DoublePendulum(HasTraits):
         #return [th1dt, th2dt, dx[0], dx[1]]
 
 
+class ScipyOde:
+    def __init__(self, odefcn):
+        self.odeint = scipy.integrate.ode(odefcn).set_integrator('dopri')
+
+    def run(self, dpmodel, x0, tmax, dt=0.01):
+        self.odeint.set_initial_value(x0)
+        while self.odeint.successful() and self.odeint.t < tmax:
+            self.update_state(dt)
+
+    def set_init_state(self, x0):
+        self.odeint.set_initial_value(x0)
+
+    def update_state(self, dt):
+        self.odeint.integrate(self.odeint.t + dt)
+        
+class LQR(HasTraits):
+    Q = Array(value=np.array([1,1, 1, 1]))
+    R = Array(value=np.array([1., 1.]))
+
+    compute_lqr = Button(label="Compute LQR")
+
+    A = None
+    B = None
+    
+    def __init__(self, A, B):
+        udim = B.shape[1]
+        self.R = np.diag(np.eye(udim))
+        self.A = A
+        self.B = B
+
+    def compute_lqr(self):
+        K, S, E = control.lqr(self.A, self.B, np.diag(self.Q), np.diag(self.R))
+        return K
+
+class ReflexFeedback():
+    """ Function object which implements a reflex feedback. The feedback will be on for a given
+    duration. After that, it will have a refractory phase, in which it can not be activated 
+    again.
+    The threshold should be given in m, and represents a horizontal displacement of the center
+    of mass of the double pendulum. The position of the pendulum CoM is computed from the 
+    joint angles and the distance from the joints to the respective CoMs of the two links.
+    """
+    def __init__(self, thr, amplitude, duration, refr, a1, a2, m1, m2):
+        self.thr = thr
+        self.amplitude = amplitude
+        self.duration = duration
+        self.refractoryduration = refr
+        self.a1 = a1  # length from base to CoM of link 1
+        self.a2 = a2  # length from joint to CoM of link 2
+        self.m1 = m1  # mass of link 1
+        self.m2 = m2  # mass of link 1
+        self.invm = 1.0 / (m1+m2) # Inverse of the total mass. For faster computations
+        self.firing = False
+        self.armed = True
+        self.output = np.array([0,0])
+        self.stop = 0
+
+    def __call__(self, x, t):
+        if self.firing:
+            if t > self.stop:
+                self.firing = False
+                self.armed = False
+                self.stop = t + self.refractoryduration
+                self.output[1] = 0.0
+        else:
+            if self.armed:
+                if self.center_of_mass(x) > self.thr:
+                    self.firing = True
+                    self.output[1] = -self.amplitude
+                    self.stop = t + self.duration
+            else:
+                # Check if refractory phase done
+                if t > self.stop:
+                    self.armed = True
+
+        return self.output
+    
+    def center_of_mass(self, x):
+        cm1 = self.a1*math.sin(x[0])
+        cm2 = self.a2*math.sin(x[1])
+        
+        return (cm1*self.m1 + cm2*self.m2)*self.invm
+    
 def run_simulation():
     """ Entry point for this module. Will create a DP model, where the user may set the 
     traits of the model. Once the traits are set, an animation will be attached to the model, and the simulation started.
@@ -641,6 +721,7 @@ def run_simulation():
     #dpmodel.configure_traits(view=viewdp)
     dpmodel.configure_traits()
 
+    
 
 if __name__ == '__main__':
     #pendulum_model()
