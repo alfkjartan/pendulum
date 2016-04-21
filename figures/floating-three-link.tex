@@ -1,0 +1,152 @@
+\documentclass[tikz]{standalone}
+\usetikzlibrary{calc,patterns}
+\begin{document}
+
+\newcommand{\nvar}[2]{%
+    \newlength{#1}
+    \setlength{#1}{#2}
+}
+
+% Define a few constants for drawing
+\nvar{\dg}{0.3cm}
+\def\dw{0.25}\def\dh{0.5}
+\nvar{\ddx}{1.5cm}
+
+% Define commands for links, joints and such
+\def\centerofmass{%
+  \fill[radius=3pt] (0,0) -- ++(3pt,0) arc [start angle=0,end angle=90] -- ++(0,-6pt) arc [start angle=270, end angle=180];%
+  \draw[black, thick] (0,0) circle (3pt);%
+}%
+
+\def\link{\draw [double distance=1.5mm, very thick] (0,0)--}
+\def\joint{%
+    \filldraw [fill=white] (0,0) circle (5pt);
+    \fill[black] circle (2pt);
+}
+\def\joint{%
+    \filldraw [fill=white] (0,0) circle (5pt);
+    \fill[black] circle (2pt);
+}
+\def\grip{%
+    \draw[ultra thick](0cm,\dg)--(0cm,-\dg);
+    \fill (0cm, 0.5\dg)+(0cm,1.5pt) -- +(0.6\dg,0cm) -- +(0pt,-1.5pt);
+    \fill (0cm, -0.5\dg)+(0cm,1.5pt) -- +(0.6\dg,0cm) -- +(0pt,-1.5pt);
+}
+\def\robotbase{%
+    \draw[rounded corners=8pt] (-\dw,-\dh)-- (-\dw, 0) --
+        (0,\dh)--(\dw,0)--(\dw,-\dh);
+    \draw (-0.5,-\dh)-- (0.5,-\dh);
+    \fill[pattern=north east lines] (-0.5,-1) rectangle (0.5,-\dh);
+}
+
+% Draw an angle annotation
+% Input:
+%   #1 Angle
+%   #2 Label
+% Example:
+%   \angann{30}{$\theta_1$}
+\newcommand{\angann}[2]{%
+    \begin{scope}[]
+    \draw [dashed,] (0,0) -- (1.2\ddx,0pt);
+    \draw [->, shorten >=3.5pt] (\ddx,0pt) arc (0:#1:\ddx);
+    % Unfortunately automatic node placement on an arc is not supported yet.
+    % We therefore have to compute an appropriate coordinate ourselves.
+    \node at (#1/2-2:\ddx+8pt) {#2};
+    \end{scope}
+}
+
+% Draw line annotation
+% Input:
+%   #1 Line offset (optional)
+%   #2 Line angle
+%   #3 Line length
+%   #5 Line label
+% Example:
+%   \lineann[1]{30}{2}{$L_1$}
+\newcommand{\lineann}[4][0.5]{%
+    \begin{scope}[rotate=#2, inner sep=2pt]
+        \draw[dashed, ] (0,0) -- +(0,#1)
+            node [coordinate, near end] (a) {};
+        \draw[dashed, ] (#3,0) -- +(0,#1)
+            node [coordinate, near end] (b) {};
+        \draw[|<->|] (a) -- node[fill=white] {#4} (b);
+    \end{scope}
+}
+
+% Define the kinematic parameters of the three link manipulator.
+\def\thetaone{-30}
+\def\Lone{3}
+\def\alphaOne{0.6}
+
+\def\thetatwo{-30}
+\def\Ltwo{2}
+\def\alphaTwo{0.6}
+
+\def\thetathree{40}
+\def\Lthree{3}
+\def\alphaThree{0.5}
+
+\begin{tikzpicture}
+  % coordinate system
+  \begin{scope}[xshift=4cm, yshift=-1.5cm]
+    \node[coordinate] (origin) at (0,0) {};
+    \draw[->, thick] (origin) -- (1.5, 0) node [at end, below] {$x$};
+    \draw[->,thick] (origin) -- (0,1.5) node [at end,left] {$z$};
+  \end{scope}
+
+  %robotbase is trunk segment (middle segment)
+  \begin{scope}[rotate=90]
+    \lineann[-0.7]{\thetaone}{\Lone}{$l_0$}
+    \link(\thetaone:\Lone);
+    \joint
+    \pgfmathsetmacro{\dOne}{\alphaOne*\Lone}
+    \begin{scope}[shift=(\thetaone:\dOne)]
+      \node[coordinate] (CoM1) at (0,0) {};
+      \angann{\thetaone}{$q_0$}
+    \end{scope}
+    \node[coordinate] (joint1) {};
+    % Link 2
+    \begin{scope}[shift=(\thetaone:\Lone), rotate=\thetaone]
+        \angann{\thetatwo}{$q_1$}
+        \lineann[-1.5]{\thetatwo}{\Ltwo}{$l_1$}
+        \link(\thetatwo:\Ltwo);
+        \joint
+        \pgfmathsetmacro{\dTwo}{\alphaTwo*\Ltwo}
+        \begin{scope}[shift=(\thetatwo:\dTwo)]
+          \node[coordinate] (CoM2) at (0,0) {};
+        \end{scope}
+    \end{scope}
+    \begin{scope}[shift=(\thetatwo:\Ltwo), rotate=\thetatwo]
+      %  \grip
+    \end{scope}
+
+    % Link 3
+    \begin{scope}[rotate=\thetaone]
+    \begin{scope}[rotate=180]
+        \angann{\thetathree}{$-q_2$}
+        \lineann[1]{\thetathree}{\Lthree}{$l_2$}
+        \link(\thetathree:\Lthree);
+        \joint
+        \pgfmathsetmacro{\dThree}{\alphaThree*\Lthree}
+        \begin{scope}[shift=(\thetathree:\dThree)]
+          \node[coordinate] (CoM3) at (0,0) {};
+        \end{scope}
+    \end{scope}
+    \end{scope}
+  \end{scope}
+
+  \draw[->, thin] (origin) -- node[right] {$[q_3, q_4]$} (CoM1); 
+
+    \begin{scope}[shift=(CoM1)]
+      \centerofmass
+    \end{scope}
+    \begin{scope}[shift=(CoM2)]
+      \centerofmass
+    \end{scope}
+    \begin{scope}[shift=(CoM3)]
+      \centerofmass
+    \end{scope}
+    
+\end{tikzpicture}
+
+\end{document}

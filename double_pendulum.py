@@ -25,8 +25,7 @@ import numpy as np
 import  scipy.integrate 
 
 from timeseriesplot import TimeSeriesPlot
-
-#print "reloading"
+import double_pendulum_symbolic as dps
 
 class DoublePendulumAnimation:
     """
@@ -34,7 +33,7 @@ class DoublePendulumAnimation:
 
        animation = DoublePendulum(width=800, height=400, fps=60)
 
-    The animation must first be intialized. This is done using init_dp::
+    The animation must first be intialized. This is done using init_dp:
     
        animation.init_dp(lenLink1, lenLink2, angle1, angl2)
 
@@ -105,15 +104,15 @@ class DoublePendulumAnimation:
         self.root_pos = [q3, q4]
         
         self.ax.set_xlim(1.2*np.array([-dplength, dplength]))
-        self.ax.set_ylim(0.5*dplength + 1.2*np.array([-dplength, dplength]))
+        self.ax.set_ylim(0.1*dplength + 1.2*np.array([-dplength, dplength]))
 
         self.draw_pendulum(np.array([q1, q2, q3, q4]))
 
         if Fz > 0:
-            dx = -My/Fz
+            dx = -float(My)/float(Fz)
         else:
             dx = 0
-            
+
         self.FxVector.xy = (q3+dx, q4)
         self.FxVector.set_position((q3+dx-Fx*self.forceScale, q4))
         self.FzVector.xy = (q3+dx, q4)
@@ -224,7 +223,7 @@ class DoublePendulumAnimation:
         Fx = grf[0]
         Fz = grf[1]
         My = grf[2]
-        dx = -My/Fz
+        dx = -Myn/Fz
         self.FxVector.xy = (q[2]+dx, q[3])
         self.FxVector.set_position((q[2]+dx-Fx*self.forceScale, q[3]))
         self.FzVector.xy = (q[2]+dx, q[3])
@@ -304,7 +303,7 @@ class DoublePendulum(HasTraits):
     
     # Attributes not set by traitsUI
     rng = random.Random(1234)
-    g = 9.825
+    g = 9.8
     sin = math.sin
     cos = math.cos
     # The state is x=[th1, th2, th1dot, th2dot, xe1, xe2],
@@ -379,6 +378,53 @@ class DoublePendulum(HasTraits):
         """
 
         self.currentState = q
+
+
+    def simulate_trajectory(self, q0, qd0, tmax, dt, controlLaw= lambda x: np.zeros(4)):
+        (H_func,f_func) = dps.get_ode_fcn_floating_dp(self.g,
+                                            self.a1, self.L1, self.m1, self.I1,
+                                            self.a2, self.L1, self.m2, self.I2)
+
+        #return (H_func, f_func)
+    
+        def right_hand_side(x, t, args):
+            """Returns the derivatives of the states.
+
+            Parameters
+            ----------
+               :x: ndarray (8,) [q, qd], the current state vector.
+               :t: float, the current time.
+
+            Returns
+            -------
+            dx : ndarray, shape(8,), yhe derivative of the state.
+    
+            """
+            tau = controlLaw(x)   # The input forces 
+            arguments = np.hstack((x, tau))      # States, input, and parameters
+            dqd = np.array(solve(H_func(*arguments),  # Solving for the second derivatives
+                                f_func(*arguments))).T[0]
+            dq = x[4:]   # The first derivatives, i.e., the generalized velocities
+
+            return np.hstack((dq, dqd))
+        
+        x0 = np.hstack((q0, qd0, np.zeros(2)))
+        N = np.ceil(float(tmax)/dt)
+        self.timeVector = np.linspace(0.0, tmax, num=N)  # Time vector
+        x = odeint(right_hand_side, x0, self.timeVector)  # Numerical integration
+
+        self.stateTrajectory = x[:,:4]
+        qdots = x[:, 4:8]
+        lams = x[:,8:]
+        
+        # Find the ground reaction forces
+        grf = np.zeros((N, 2))
+        for i in range(N):
+            arguments = np.hstack((x[i], np.zeros(4)))
+            Hf = H_func(*arguments)
+            ff = f_func(*arguments)
+            
+        #self.grfTrajectory = grf
 
     def get_joints_and_endpoint(self):
         """ 

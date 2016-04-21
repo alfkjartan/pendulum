@@ -1,6 +1,7 @@
 import numpy as np
 import sympy as sy
-import sympy.physics.mechanics as me
+from sympy import *
+from sympy.matrices import *
 from sympy.utilities.lambdify import lambdify, implemented_function
 import itertools
 from functools import partial
@@ -24,134 +25,6 @@ def set_pickled(ob, fname):
         pickle.dump(ob, f)
 
 def get_ode_fcn_floating_dp(g_, a1_, L1_, m1_, I1_, a2_, L2_, m2_, I2_):
-    """
-    Equations of motion of floating double pendulum. Computed using sympy.physics.mechanics, 
-    and based on the n-pendulum example from PyDy.
-    The equations of motion are 
-       H(q) * qdd + Lambda(q) * lam = f(q, qd)
-    with constraint equations
-       mc(q)qd + fc(q) = 0
-    and are rewritten as 
-       [H(q) Lambda(q)] * [qdd; lam] = f(q, qd)
-
-    Definitions of the generalized coordinates:
-        :q1: Angle between link one and vertical. Positive rotation is about the y-axis, 
-             which points into the plane.
-        :q2: Angle between link one and two.
-        :q3: Position in x-direction (horizontal) of the base joint (ankle joint).
-        :q4: Position in z-direction (vertical) of the base joint (ankle joint).
-
-    Here, we force the floating double pendulum to have velocity zero at the base joint. Hence, the constraint
-    equations become
-        qd3 = 0
-        qd4 = 0.
-    If we look at the extra terms in the equations of motion due to these constraints, we see that 
-        H(q) * qdd + Lambda(q) * lam = f(q, qd)
-    In the 3rd row in this d.e., the term Lambda_3(q)*lam_1 gives the constraint force in the direction of q3,
-    i.e. in the horizontal direction. The forth term, Lambda_4(q)*lam_2, give the vertical force.
-  
-    Returns:
-        Tuple of callable functions: (M, ff), where
-        M = [I 0 0
-             0 H Lambda
-             0 m_cd 0]  
-        ff = [qd
-              f
-              f_cd]
-
-    The symbols and constants are 
-        :qi: generalized coordinate i
-        :qdi: generalized velocity i
-        :g: the local magnitude of the gravitational field
-        :m1: the mass of link 1
-        :m2: the mass of link 2
-        :L1: the length of link 1
-        :L2: the length of link 2
-        :I1: the moment of inertia of link 1 wrt to its CoM
-        :I2: the moment of inertia of link 2 wrt to its CoM
-        :a1: the position of CoM of link 1 along link 1 from base joint to next joint. 
-                 0 <= a1 <= 1. a1=1 means the CoM is at the next joint.
-        :a2: the position of CoM along link 1
-    
-    :Date: 2016-04-18
-
-    """
-
-    q = me.dynamicsymbols('q:{}'.format(4))  # Generalized coordinates
-    qd = me.dynamicsymbols('q:{}'.format(4), 1)  # Generalized speeds
-    uu = me.dynamicsymbols('u:{}'.format(4))  # Generalized speeds
-    tau = me.dynamicsymbols('tau:{}'.format(4))            # Generalized forces
-    
-    m = sy.symbols('m:{}'.format(2))         # Mass of each link
-    momIn = sy.symbols('II:{}'.format(2))    # Moment of inertia of each link
-    L = sy.symbols('l:{}'.format(2))         # Length of each link
-    a = sy.symbols('a:{}'.format(2))         # Position of CoM. 0 <= a <= 1
-    g, t = sy.symbols('g t')                     # Gravity and time
-
-    N = me.ReferenceFrame('N')  # Inertial reference frame
-    O = me.Point('O')           # Origin point
-    O.set_vel(N, 0)             # Origin's velocity is zero
-
-    P0 = me.Point('P0')                      # Hinge point of base link can move in the x-z plane
-    P0.set_pos(O, q[2] * N.x + q[3] * N.z)   # Set the position of P0    
-    P0.set_vel(N, qd[2] * N.x + qd[3] * N.z)   # Set the velocity of P0
-
-    frames = [N]                      # List to hold the 3 frames
-    joints_and_endp = [P0]            # List to hold the 2 joint positions and the end point
-    links  = []                       # List to hold the 2 links (rigid bodies)
-    torques = []            # List to hold the torques at the two joints
-    kinDiffs = []                     # List to hold kinematic ODE's
-    CoMs = []
-    S = sy.Matrix([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]])
-    for i in range(2):
-        proxLink = frames[-1]
-        Bi = proxLink.orientnew('B' + str(i), 'Axis', [q[i], proxLink.y])   # Create a new frame. Rotation about y
-        Bi.set_ang_vel(proxLink, qd[i] * proxLink.y)                         # Set angular velocity
-        frames.append(Bi)                                     # Add it to the frames list
-
-        pivot = joints_and_endp[-1]    # The pivot point of this link
-        
-        Pi = pivot.locatenew('P' + str(i + 1), L[i] * Bi.z)  # Create a new point at end of link
-        Pi.v2pt_theory(pivot, N, Bi)                         # Set the velocity
-        joints_and_endp.append(Pi)                           # Add it to the points list
-    
-        CoMi = pivot.locatenew('CoM' + str(i + 1), a[i]*L[i] * Bi.z)  # Create a new point at CoM
-        CoMi.v2pt_theory(pivot, N, Bi)                              # Set the velocity
-        CoMs.append(CoMi)                                           # Add it to the points list
-
-        Ii = me.functions.inertia(Bi, 0, momIn[i], momIn[i])
-        RBi = me.RigidBody('Link' + str(i + 1), CoMi, Bi, m[i], (Ii, CoMi))  # Create a new link
-        RBi.set_potential_energy(m[i] * g * CoMi.pos_from(O).dot(N.z))
-        links.append(RBi)                                          # Add it to the links list
-        
-        torques.append((Bi, tau[i]*Bi.y))                    # Add the torque acting on the link
-
-    Lag = me.Lagrangian(N, links[0]) + me.Lagrangian(N, links[1])  # The lagrangian of the system
-    constraints = [q[2], q[3]]   # Force the base joint to be stationary at the origin
-    LM = me.LagrangesMethod(Lag, q, hol_coneqs=constraints, forcelist=torques, frame=N)
-    LM.form_lagranges_equations()
-    
-    # Substitute parameter values
-    subsDict = {g:g_, a[0]:a1_, L[0]:L1_, m[0]:m1_, momIn[0]:I1_, a[1]:a2_, L[1]:L2_, m[1]:m2_, momIn[1]:I2_} 
-    Hs = LM.mass_matrix_full.subs(subsDict)
-    fs = LM.forcing_full.subs(subsDict)
-    #Hs = LM.mass_matrix
-    #fs = LM.forcing
-    for i in range(4):
-        Hs = Hs.subs(qd[i], uu[i])
-        fs = fs.subs(qd[i], uu[i])
-        
-    
-    callingargs = q + uu + tau
-    #callingargs = q + uu + tau + [g, a[0], L[0], m[0], momIn[0], a[1], L[1], m[1], momIn[1]] 
-    f_func = sy.lambdify(callingargs, fs)
-    H_func = sy.lambdify(callingargs, Hs)
-    
-    return (H_func, f_func)
-
-    
-
-def get_ode_fcn_floating_dp_legacy(g_, a1_, L1_, m1_, I1_, a2_, L2_, m2_, I2_):
     """ Returns a function object that can be called with fnc(t,x, u),
     where x = [q1, q2, q3, q4, qd1, qd2, qd3, qd4], and tau = [tau1, tau2, tau3, tau4], is the torques at each 
     joint respectively. The function implements the ode for the floating inverted
@@ -189,39 +62,39 @@ def get_ode_fcn_floating_dp_legacy(g_, a1_, L1_, m1_, I1_, a2_, L2_, m2_, I2_):
 def get_symbolic_ode_floating_dp(params):
     """
     Will generate ode on symbolic form:
-    qdd = H^{-1} (-C(q,qd)*qd - G(q) - S*tau)
-    
-    """
-    existing_odes = get_pickled(picklefile_ode)
-    
-    if params in existing_odes:
-        odes = existing_odes[params]
-    else:
-        (g_, a1_, L1_, m1_, I1_, a2_, L2_, m2_, I2_) = params
-        
-        tau1, tau2, tau3, tau4 = sy.symbols('tau1, tau2, tau3, tau4')
-        q1, q2, q3, q4, qd1, qd2, qd3, qd4 = symbols('q1, q2, q3, q4, qd1, qd2, qd3, qd4', real=True)
-        g, a1, L1, m1, I1, a2, L2, m2, I2 = symbols('g, a1, L1, m1, I1, a2, L2, m2, I2')
-        
-        H, C, G, S = pendulum_ode_manipulator_form_floating_dp()
-        
-        # Substitute the given parameters
-        H = H.subs(a1, a1_).subs(L1, L1_).subs(m1, m1_).subs(I1, I1_).subs(a2, a2_).subs(L2, L2_).subs(m2, m2_).subs(I2, I2_).subs(g, g_)
-        C = C.subs(a1, a1_).subs(L1, L1_).subs(m1, m1_).subs(I1, I1_).subs(a2, a2_).subs(L2, L2_).subs(m2, m2_).subs(I2, I2_).subs(g, g_)
-        G = G.subs(a1, a1_).subs(L1, L1_).subs(m1, m1_).subs(I1, I1_).subs(a2, a2_).subs(L2, L2_).subs(m2, m2_).subs(I2, I2_).subs(g, g_)
-        
-        # Invert symbolically
-        tau = Matrix([tau1, tau2, tau3, tau4])
-        qdot = Matrix([qd1, qd2, qd3, qd4])
-    
-        odes = H.LUsolve(S*tau-C*qdot-G)
-        
-        # pickle
-        existing_odes[params] = odes
-        set_pickled(existing_odes, picklefile_ode)
-         
-    return odes
+        qdd = H^{-1} (-C(q,qd)*qd - G(q) - S*tau)
 
+    """
+     existing_odes = get_pickled(picklefile_ode)
+
+     if params in existing_odes:
+         odes = existing_odes[params]
+     else:
+         (g_, a1_, L1_, m1_, I1_, a2_, L2_, m2_, I2_) = params
+
+         tau1, tau2, tau3, tau4 = sy.symbols('tau1, tau2, tau3, tau4')
+         q1, q2, q3, q4, qd1, qd2, qd3, qd4 = symbols('q1, q2, q3, q4, qd1, qd2, qd3, qd4', real=True)
+         g, a1, L1, m1, I1, a2, L2, m2, I2 = symbols('g, a1, L1, m1, I1, a2, L2, m2, I2')
+         
+         H, C, G, S = pendulum_ode_manipulator_form_floating_dp()
+             
+         # Substitute the given parameters
+         H = H.subs(a1, a1_).subs(L1, L1_).subs(m1, m1_).subs(I1, I1_).subs(a2, a2_).subs(L2, L2_).subs(m2, m2_).subs(I2, I2_).subs(g, g_)
+         C = C.subs(a1, a1_).subs(L1, L1_).subs(m1, m1_).subs(I1, I1_).subs(a2, a2_).subs(L2, L2_).subs(m2, m2_).subs(I2, I2_).subs(g, g_)
+         G = G.subs(a1, a1_).subs(L1, L1_).subs(m1, m1_).subs(I1, I1_).subs(a2, a2_).subs(L2, L2_).subs(m2, m2_).subs(I2, I2_).subs(g, g_)
+
+         # Invert symbolically
+         tau = Matrix([tau1, tau2, tau3, tau4])
+         qdot = Matrix([qd1, qd2, qd3, qd4])
+        
+         odes = H.LUsolve(S*tau-C*qdot-G)
+        
+         # pickle
+         existing_odes[params] = odes
+         set_pickled(existing_odes, picklefile_ode)
+         
+     return odes
+    
 def get_ode_fcn(a1_, L1_, m1_, I1_, a2_, L2_, m2_, I2_, useRT=True):
     """ Returns a function object that can be called with fnc(t,x, u),
     where x = [th1,th2], and u = [tau1, tau2], is the torques at each 
