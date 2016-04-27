@@ -9,8 +9,10 @@ import sympy as sy
 import sympy.physics.mechanics as me
 import matplotlib.pyplot as plt
 from matplotlib import animation
+from itertools import izip
 
-def animate_pendulum(t, qcoords, qsymb, subsdict, points, specialpoints, refFrame, filename=None):
+def animate_pendulum(t, qcoords, qsymb, subsdict, points, specialpoints, refFrame,
+                     pullForces=None, pushForces=None, filename=None):
     """Animates a chain of links and optionally saves it to file.
 
     Arguments
@@ -27,6 +29,8 @@ def animate_pendulum(t, qcoords, qsymb, subsdict, points, specialpoints, refFram
                    List of CoM and other special points (sympy.physics.vector.point.Point). The order is NOT important, since only markers will be drawn
         :refFrame: tuple (sympy.physics.vector.point.Point, sympy.physics.vector.frame.ReferenceFrame), The frame in which to express the movement, and the origin of this frame, which will be static.  
 
+        :pullForces: List of (vector, point) tuples representing forces pulling at the pendulum, optional
+        :pushForces: List of (vector, point) tuples representing forces pushing at the pendulum, optional
         :filename: string or None, optional
                    If true a movie file will be saved of the animation. This may take some time.
 
@@ -42,11 +46,21 @@ def animate_pendulum(t, qcoords, qsymb, subsdict, points, specialpoints, refFram
     (refpoint, frame) = refFrame
     
     # Define functions that will generate the x- and z-coordinates from the list of points
-    x_func = sy.lambdify(qsymb, [me.dot(p.pos_from(refpoint).subs(subsdict), frame.x) for p in points])
-    z_func = sy.lambdify(qsymb, [me.dot(p.pos_from(refpoint).subs(subsdict), frame.z) for p in points])
-    x_func_s = sy.lambdify(qsymb, [me.dot(p.pos_from(refpoint).subs(subsdict), frame.x) for p in specialpoints])
-    z_func_s = sy.lambdify(qsymb, [me.dot(p.pos_from(refpoint).subs(subsdict), frame.z) for p in specialpoints])
+    x_func = sy.lambdify(qsymb, [me.dot(p.pos_from(refpoint), frame.x).subs(subsdict) for p in points])
+    z_func = sy.lambdify(qsymb, [me.dot(p.pos_from(refpoint), frame.z).subs(subsdict) for p in points])
+    x_func_s = sy.lambdify(qsymb, [me.dot(p.pos_from(refpoint), frame.x).subs(subsdict) for p in specialpoints])
+    z_func_s = sy.lambdify(qsymb, [me.dot(p.pos_from(refpoint), frame.z).subs(subsdict) for p in specialpoints])
 
+    if pushForces != None:
+        push_force_vec_x_func = sy.lambdify(qsymb,
+                                             [me.dot(fv_, frame.x).subs(subsdict) for (fv_, p_) in pushForces])
+        push_force_vec_z_func = sy.lambdify(qsymb,
+                                             [me.dot(fv_, frame.z).subs(subsdict) for (fv_, p_) in pushForces])
+        push_appl_x_func = sy.lambdify(qsymb,
+                                        [me.dot(p_.pos_from(refpoint), frame.x).subs(subsdict) for (fv_, p_) in pushForces])
+        push_appl_z_func = sy.lambdify(qsymb,
+                                        [me.dot(p_.pos_from(refpoint), frame.z).subs(subsdict) for (fv_, p_) in pushForces])
+        
     #for p in points:
     #    x_funcs.append(sy.lambdify(q, me.dot(p, frame.x)))
     #    z_funcs.append(sy.lambdify(q, me.dot(p, frame.z)))
@@ -71,13 +85,31 @@ def animate_pendulum(t, qcoords, qsymb, subsdict, points, specialpoints, refFram
     points_, = ax.plot([], [], 'o', markersize=6, color=(0.6, 0, 0.6))
     line_, = ax.plot([], [], lw=3, marker='o', markersize=8, color=(0.6, 0, 0))
 
+
+    # Vectors representing forces
+    pushv_ = []
+    if pushForces != None:
+        pushv_ = [ ax.annotate("",
+                               xy=(0, 0), xycoords='data',
+                               xytext=(0, 0), textcoords='data',
+                               arrowprops=dict(arrowstyle="->",
+                                               connectionstyle="arc3",
+                                               color=(0.8, 0.8, 0.8), linestyle='solid'))
+                   for (force, pappl) in pushForces]
+        
+    
     # initialization function: plot the background of each frame
     def init():
         time_text.set_text('')
         line_.set_data([], [])
         points_.set_data([], [])
         specialpoints_.set_data([], [])
-        return time_text, line_, points_, specialpoints_
+        if pushForces != None:
+            for forcevec_ in pushv_: 
+                forcevec_.xy = (0, 0)
+                forcevec_.set_position((0, 0))
+
+        return (time_text, line_, points_, specialpoints_) + tuple(pushv_)
 
     # animation function: update the objects
     def animate(i):
@@ -89,7 +121,18 @@ def animate_pendulum(t, qcoords, qsymb, subsdict, points, specialpoints, refFram
         line_.set_data(x, z)
         points_.set_data(x, z)
         specialpoints_.set_data(xs, zs)
-        return time_text,line_,points_, specialpoints_
+
+        if pushForces != None:
+            fvec_x = push_force_vec_x_func(*qcoords[i,:])
+            fvec_z = push_force_vec_z_func(*qcoords[i,:])
+            applp_x = push_appl_x_func(*qcoords[i,:])
+            applp_z = push_appl_z_func(*qcoords[i,:])
+            for (forcevec_, fx_, fz_, px_, pz_)  in izip(pushv_, fvec_x, fvec_z, applp_x, applp_z) : 
+                forcevec_.xy = (px_, pz_)
+                forcevec_.set_position((px_ + fx_, pz_ + fz_))
+
+
+        return (time_text, line_, points_, specialpoints_) + tuple(pushv_)
 
     # call the animator function
     anim = animation.FuncAnimation(fig, animate, frames=len(t), init_func=init,
